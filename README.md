@@ -7,7 +7,7 @@
 ## 开发与安装
 
 ```sh
-npm install -D https://github.com/MoeBotOfficial/MoeBot-Plugin-SDK/releases/download/v1.3.0/qq-bot-plugin-sdk-1.3.0.tgz
+npm install -D https://github.com/MoeBotOfficial/MoeBot-Plugin-SDK/releases/download/v1.4.0/qq-bot-plugin-sdk-1.4.0.tgz
 ```
 
 推荐克隆 [每日插件](https://github.com/MoeBotOfficial/MoeBot-Plugin-Daily) 或 [系统插件](https://github.com/MoeBotOfficial/MoeBot-Plugin-Essentials) 作为模板，然后运行 `npm ci`、`npm run typecheck`、`npm test`。将 `dist/<id>-<version>.zip` 交给用户，通过 WebUI「插件管理」上传，启用并点击「保存并部署」。不要上传 GitHub 自动生成的源代码 ZIP。
