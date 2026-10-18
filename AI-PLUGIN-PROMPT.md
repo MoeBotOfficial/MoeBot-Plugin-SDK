@@ -14,3 +14,5 @@
 执行类型检查、测试及 qq-plugin build，交付生成的 ZIP。明确插件 ID、版本、命令、配置、能力、数据保留和 CPU 边界。
 
 如需出现在 MoeBot 0.7.5 的 QQ 指令面板，请为命令声明实际可用的 `/` 入口，保持旧入口兼容。可在 `plugin.json` 的命令上添加 `panel: { order: 100, description: "简短说明" }`，不增加 `name`、凭据或网络操作。不改变 SDK ctx 契约。若处理器直接解析 `ctx.message.text`，须自行兼容新增斜杠。面板由部署流程统一生成和同步。
+
+如需要 Markdown 按钮，先读取 SDK Keyboard/Interaction 类型，同时声明 reply.markdown 和 reply.keyboard；使用 ctx.reply.keyboard 判断授权。调用 markdown(text,{keyboard})，回调定义 onInteraction(ctx)，通过 ctx.interaction.respond(code) 先回应再发送消息。回调 data 由核心签名并还原，不要解析签名格式，也不要把回调当普通聊天消息。命令按钮 type=2、回调按钮 type=1；自己验证持久操作幂等性。最低核心0.8.1，测试禁止请求真实QQ。

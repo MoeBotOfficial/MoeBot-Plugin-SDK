@@ -123,3 +123,29 @@ Logo 使用独立的椭圆眼睛、倒三角鼻子和猫嘴，保留绿色圆角
 - QQ 名称最长 14、说明最长 30 单位，ASCII 计 1，中文计 2；每场景最多 20 项。说明可缩短，命令名不可截断，跳过原因可在 WebUI 查看。群聊、私聊按已安装插件的使用范围分别计算。
 
 插件作者不调用平台面板 API，不读取机器人凭据，不注册新的 SDK `ctx` 方法。旧插件无需迁移；添加展示声明后，重新构建 ZIP，再上传 WebUI 保存并部署即可。
+
+## Markdown 按钮（核心 0.8.1 / SDK 1.4.0）
+
+保留 `ctx.reply.markdown(text)`，新增 `ctx.reply.markdown(text, { keyboard: { rows: [{ buttons: [...] }] } })`。插件必须同时声明 `reply.markdown`、`reply.keyboard`，管理员须分别开启「Markdown 消息」「Markdown 按钮」授权。默认均关闭；关闭 Markdown 同时撤销按钮。安装项 `keyboard: true` 随完整安装集合加密恢复、更新保留；按钮与文字、图片、Markdown 共用每次调用三条回复预算。`ctx.reply.keyboard === true` 用于能力降级判断。
+
+```ts
+await ctx.reply.markdown('# 按钮演示', { keyboard: { rows: [{ buttons: [
+  { id: 'help', render_data: { label: '帮助', visited_label: '再次查看', style: 0 },
+    action: { type: 2, permission: { type: 2 }, data: '/help', enter: true,
+      reply: true, unsupport_tips: '请手动发送 /help' } },
+  { id: 'confirm', render_data: { label: '确认', visited_label: '已确认', style: 1 },
+    action: { type: 1, permission: { type: 2 }, data: 'confirm', unsupport_tips: '请升级 QQ' } },
+] }] } });
+```
+
+指令按钮（type=2）沿用普通消息命令分发。回调按钮（type=1）须定义 `onInteraction(ctx)`：通过 `ctx.interaction.buttonId/data` 处理业务，尽快 `await ctx.interaction.respond(0)`，再通过 `ctx.reply` 发送后续消息。响应码 0 成功、1 失败、2 频繁、3 重复、4 无权限、5 仅管理员；每个互动只能回应一次。未手动回应时，核心在处理成功后自动回应 0，异常回应 1，未知/未授权/停用/越范围回调回应 4。回应已尝试后不会因网络异常重试。互动独立于聊天、AI、MCP 和 messages 历史。
+
+键盘最多 5 行，每行 5 个按钮，单条消息内 ID 唯一（1..64 UTF-8 字节），label/visited_label 1..80 字节、style 0/1；data 1..512 字节，unsupport_tips 1..200 字节。只接受文档字段，支持 permission.type 0 指定用户（1..10 个 specify_user_ids）、1 管理员、2 所有人；群聊/私聊不支持频道身份组。reply/enter 只支持指令按钮；不支持模板、跳转、anchor 和弃用字段。核心对回调 data 加 HMAC 签名后以 QQ keyboard.content 发送，插件读取的是原始 data；签名绑定插件版本、会话、按钮 ID、指定用户，签名密钥轮换或插件升级会使旧按钮失效。QQ 执行管理员权限校验；核心再次检查指定用户。
+
+核心在单个 isolate 内对五分钟内最多 256 个互动 ID 去重，不能保证跨 isolate 的 exactly-once。涉及持久状态的业务须自己做幂等处理。回调 handler 与命令一样必须 await 所有异步操作，不应在回应前执行慢任务。
+
+发布包与管理 capabilities 声明 `pluginKeyboard: 1`；目标核心没有该标记时，浏览器在保存配置前拒绝声明按钮的插件。旧核心固定权限表也会拒绝。0.8.1 后端要求按钮安装集合的部署计划带 `keyboardPlan: 1`，阻止旧控制台更新时丢失授权。三份 protocol.js（核心、WebUI、SDK）必须字节一致。
+
+QQ 需订阅 `INTERACTION_CREATE`（INTERACTION intent `1 << 26`），互动 type 11/12 使用 `PUT /interactions/{d.id}` 回应；其他类型不发 PUT。后续群聊/私聊消息使用外层事件 `payload.id` 作为 event_id，不能当 msg_id。官方自定义按钮标为「内邀开通」：普通 Markdown 可用不代表账号已开通自定义键盘。开通权限、事件订阅和客户端显示仍须 QQ 平台实际验证。
+
+官方依据：[消息按钮](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html)、[互动事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/interaction_create.html)、[回应互动](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/interactions_interaction_id.put.html)。

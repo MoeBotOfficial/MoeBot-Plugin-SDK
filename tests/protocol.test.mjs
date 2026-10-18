@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {validateManifest,validateConfig,validatePackage,validateInstallation,digest} from '../src/protocol.js';
+import {validateManifest,validateConfig,validatePackage,validateInstallation,validateKeyboard,digest} from '../src/protocol.js';
 const manifest={id:'example',name:'Example',version:'1.0.0',entry:'plugin.mjs',apiVersion:1,permissions:['reply.text'],commands:[{id:'hello',triggers:['/hello'],description:'Hello'}]};
 const schema={type:'object',properties:{text:{type:'string',default:'hello'},key:{type:'string','x-secret':true}},required:['key']};
 test('schema defaults, secrets, primitive types and unknown keys',()=>{assert.throws(()=>validateConfig(schema,{}));assert.equal(validateConfig(schema,{}, {secretPresence:{key:true}}).text,'hello');assert.throws(()=>validateConfig(schema,{unknown:1}));assert.throws(()=>validateConfig(schema,{text:false},{enabled:false}));});
@@ -25,4 +25,12 @@ test('optional panel declarations remain data-only and backward compatible',()=>
   const command=manifest.commands[0];
   validateManifest({...manifest,commands:[{...command,panel:{order:-10,description:'面板说明'}}]});
   for(const panel of [null,[],{name:'spoof'},{order:1.2},{order:10001},{description:''},{description:'x\nunsafe'},{description:'x'.repeat(241)},{url:'https://example.com'}])assert.throws(()=>validateManifest({...manifest,commands:[{...command,panel}]}));
+});
+
+test('keyboard declarations require Markdown and explicit grants; helpers preserve callback data',async()=>{
+ const m={...manifest,permissions:['reply.text','reply.markdown','reply.keyboard']};validateManifest(m);assert.throws(()=>validateManifest({...m,permissions:['reply.keyboard']}));
+ const code='export default {}',p={format:1,manifest:m,schema:{type:'object',properties:{}},code,sha256:await digest(code)};
+ const item={package:p,enabled:true,scopes:['c2c'],config:{}};await validateInstallation([item]);await validateInstallation([{...item,markdown:true,keyboard:true}]);await assert.rejects(validateInstallation([{...item,keyboard:true}]));
+ const k={rows:[{buttons:[{id:'confirm',render_data:{label:'确认',visited_label:'已确认',style:1},action:{type:1,permission:{type:2},data:'confirm',unsupport_tips:'请升级'}}]}]};assert.deepEqual(validateKeyboard(k),k);
+ const {createTestContext}=await import('../src/testing.js');const t=createTestContext({keyboard:true,interaction:{data:'confirm'}});await t.context.reply.markdown('demo',{keyboard:k});await t.context.interaction.respond(0);assert.deepEqual(t.keyboards,[k]);assert.deepEqual(t.responses,[0]);await assert.rejects(t.context.interaction.respond(1));
 });

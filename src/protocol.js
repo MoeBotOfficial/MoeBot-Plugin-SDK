@@ -1,6 +1,6 @@
 // Shared wire contract. No code evaluation; validation runs only during management/build.
 export const LIMITS = Object.freeze({ plugins: 8, moduleBytes: 131072, totalBytes: 524288, zipBytes: 262144, fields: 32 });
-export const PERMISSIONS = ['reply.text', 'reply.image', 'reply.markdown', 'storage', 'http', 'model.context'];
+export const PERMISSIONS = ['reply.text', 'reply.image', 'reply.markdown', 'reply.keyboard', 'storage', 'http', 'model.context'];
 const encoder = new TextEncoder();
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const fail = (m) => { throw new Error(m); };
@@ -10,6 +10,7 @@ export function validateManifest(m) {
   if (!object(m) || m.apiVersion !== 1 || !/^[a-z][a-z0-9-]{1,47}$/.test(m.id ?? '') || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(m.version ?? '') || typeof m.name !== 'string' || !m.name || m.name.length > 80 || m.entry !== 'plugin.mjs') fail('插件清单、SDK 版本或入口无效。');
   if (JSON.stringify(m).length > 16000) fail('插件清单过大。');
   if (!Array.isArray(m.permissions) || m.permissions.some(p => !PERMISSIONS.includes(p)) || new Set(m.permissions).size !== m.permissions.length) fail('插件权限无效。');
+  if (m.permissions.includes('reply.keyboard') && !m.permissions.includes('reply.markdown')) fail('按钮能力需要声明 reply.markdown。');
   if (!Array.isArray(m.commands) || m.commands.length > 32) fail('插件命令列表无效。');
   const ids = new Set(), triggers = new Set();
   for (const c of m.commands) {
@@ -71,9 +72,36 @@ export async function validateInstallation(items) {
     bytes += encoder.encode(item.package.code).length;
     if (typeof item.enabled !== 'boolean' || !Array.isArray(item.scopes) || item.scopes.some(s=>!['group','c2c'].includes(s)) || item.scopes.length > 2) fail('插件开关或使用范围无效。');
     if (item.markdown !== undefined && (typeof item.markdown !== 'boolean' || item.markdown && !m.permissions.includes('reply.markdown'))) fail('插件 Markdown 授权无效：只有声明 reply.markdown 的插件才能获得授权。');
+    if (item.keyboard !== undefined && (typeof item.keyboard !== 'boolean' || item.keyboard && (!m.permissions.includes('reply.keyboard') || item.markdown !== true))) fail('插件按钮授权无效：需要声明 reply.keyboard 并开启 Markdown 授权。');
     validateConfig(item.package.schema, item.config, { enabled:item.enabled, secretPresence:item.secretPresence });
     if (item.enabled) for (const c of m.commands) for (const t of c.triggers) { if (commands.has(t)) fail(`命令冲突：${t}`); commands.add(t); }
   }
   if (bytes > LIMITS.totalBytes) fail('插件代码总量超过 512 KiB。');
   return items;
+}
+
+// QQ inline keyboards: a data-only, bounded subset for group/C2C bots. Return
+// a fresh value so callbacks and send payloads cannot be changed after validation.
+export function validateKeyboard(input, { signed = false } = {}) {
+  const keys = (o, allowed) => object(o) && Object.keys(o).every(k => allowed.includes(k));
+  const text = (s, max) => typeof s === 'string' && s.trim().length > 0 && encoder.encode(s).length <= max && !/[\x00-\x1f\x7f]/.test(s);
+  if (!keys(input, ['rows']) || !Array.isArray(input.rows) || !input.rows.length || input.rows.length > 5) fail('按钮键盘需要 1 到 5 行。');
+  const ids = new Set();
+  const rows = input.rows.map(row => {
+    if (!keys(row, ['buttons']) || !Array.isArray(row.buttons) || !row.buttons.length || row.buttons.length > 5) fail('每行需要 1 到 5 个按钮。');
+    return { buttons: row.buttons.map(button => {
+      if (!keys(button, ['id','render_data','action']) || !text(button.id,64) || ids.has(button.id)) fail('按钮 ID 必须唯一，最长 64 字节。');
+      ids.add(button.id);
+      const r = button.render_data, a = button.action;
+      if (!keys(r, ['label','visited_label','style']) || !text(r.label,80) || !text(r.visited_label,80) || ![0,1].includes(r.style)) fail('按钮文字或样式无效。');
+      if (!keys(a, ['type','permission','data','reply','enter','unsupport_tips']) || ![1,2].includes(a.type) || !text(a.data,signed ? 4096 : 512) || !text(a.unsupport_tips,200)) fail('只支持回调或指令按钮，需要 data 和兼容提示。');
+      if (['reply','enter'].some(k => a[k] !== undefined && (a.type !== 2 || typeof a[k] !== 'boolean'))) fail('reply 和 enter 仅适用于指令按钮。');
+      const p = a.permission;
+      if (!keys(p, ['type','specify_user_ids']) || ![0,1,2].includes(p.type)) fail('按钮权限仅支持指定用户、管理员或所有人。');
+      if (p.type === 0 ? !Array.isArray(p.specify_user_ids) || !p.specify_user_ids.length || p.specify_user_ids.length > 10 || p.specify_user_ids.some(id => !text(id,128)) : p.specify_user_ids !== undefined) fail('指定用户按钮需要 1 到 10 个用户 ID。');
+      return {id:button.id,render_data:{...r},action:{...a,permission:{...p,...(p.type===0?{specify_user_ids:[...p.specify_user_ids]}:{})}}};
+    }) };
+  });
+  if (encoder.encode(JSON.stringify(rows)).length > 16000) fail('按钮键盘总量不能超过 16000 字节。');
+  return {rows};
 }

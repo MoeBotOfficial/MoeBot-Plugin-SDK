@@ -1,6 +1,6 @@
 {
   "name": "@qq-bot/plugin-sdk",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "type": "module",
   "license": "MIT",
   "description": "Typed plugin contract and offline build tools for MoeBot (猫猫机器人) on Cloudflare Pages",
